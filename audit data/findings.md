@@ -1,6 +1,9 @@
-## [M-H] Looping thriugh players aray to check for duplicate in `PuppyRaffle::enterRaffle` is a Potential DOS attack. (Root Cause + Impact)
 
-**Description:** The `PuppyRaffle::enterRaffle` function loops through the `playwrs` array to chck for duplicate. However gas cost accumulates exponentially new checks new players make new checks. Every additional address in the `players` array, is an additional cheeck the loop will have to make.
+## Medium
+
+### [M-1] Looping through the `players' array to check for duplicates in `PuppyRaffle::enterRaffle` is a Potential DOS attack. (Root Cause + Impact)
+
+**Description:** The `PuppyRaffle::enterRaffle` function loops through the `players` array to check for duplicate. However, gas cost accumulates exponentially when new players make new checks. Every additional address in the `players` array, is an additional cheeck the loop will have to make.
 
 **Impact:** The gas cost for Raffle rntrsnt will greately increase as more player enters the raffle. this will discourage later users from entering and causing s rush at the start of raffle. 
 
@@ -69,8 +72,9 @@ Include the following test into `PuppyRaffleTest.t.sol`
 - Consider using mapping to check for duplicates. This would allow constant time lookup of whether a user has already entered.  
 
 
+## High
 
-## [H-#] `PuppyRaffle::refund` External function call before updating state leaving room for a reentrancy attack.
+### [H-1] `PuppyRaffle::refund` External function call before updating state leaving room for a reentrancy attack.
 
 **Description:** The refund function in the PuppyRaffle contract allows an attacker to exploit a reentrancy vulnerability. The external call to transfer funds (via refund()) is made before updating the contract's state, enabling an attacker to repeatedly call the refund function through a fallback mechanism, thereby draining the contract's balance.
 
@@ -130,3 +134,62 @@ contract ReentrencyAttacker {
 - Use Reentrancy Guard: Consider implementing the ReentrancyGuard pattern to prevent multiple calls to the same function during the execution process.
 
 - Checks-Effects-Interactions Pattern: Always follow the best practice of the checks-effects-interactions pattern, which involves checking conditions, updating state, and interacting with external contracts only after the state has been updated.
+
+
+## [H-2] Weak/Insecure Randomness in `PuppyRaffle::selectWinner` allows user to incluence or predict raffle  and/or winning puppy. 
+
+**Description:** Hashing `msg.sender`, `block.timestamp`, and `block.difficulty` produces random numbers and for the case of this raffle, it is considered Not Good.
+
+*Note:* This means users can frontrun this function and call ``refund` if they see they are not the winner 
+
+**Impact:** Any user can influence the winner of the raffle, winning the money and selecting the `rarest` puppy. This will make the entire raffle worthlesss if it becomes a gas war as to who win the raffle.
+
+**Proof of Concept:**
+1. Validators can know ahead of time the `block.timestamp` and `block.difficulty` and use to predict when/how to participate. 
+2. Users can mine/manipulate their `msg.sender` value to result in their address being used to generate the winner address.
+3. Users can revert their `selectWinner` transaction if they don't like the winner in resulting puppy.
+
+**Recommended Mitigation:**
+
+Consider using a cryptographically provable random number generator, i.e., Chainlink VRF.
+
+
+        //@audit arithmetic overflow. Fixes include a newer version of Solidity, and bigger units (s).
+
+
+### [H-3] Interger overflow of `PuppyRaffle::totalFees` looses fees.
+
+**Description:** Solidity version prior to `0.8.0` integers were subject to interger overflow.
+
+```javascript
+uint64 myVar = type(uint64).max
+
+// myVar = 18446744073709551615
+myVar = myVar + 1
+
+// myVar will be zero
+```
+
+**Impact:** In `PuppyRaffle::selectWinner,` `totalFees` are accumulated for the `address` to collect in the `PuppyRaffle::withdrawFees.` However, if the `totalFees` variable overflows, the `feeAddress` may not collect the correct amount of fees. This will cause a lot of fees to be stuck in the contract.
+
+**Proof of Concept:**
+1. We conclude a raffle of 4 players.
+2. We then 89 players enter the new raffle.
+3. `totalFees` + uint64(fees); will overflow.
+4. You will not be able to withdraw due to the line in the `withdrawfees` function. Except in the case where a selfdestruct is initiated.
+
+<details>
+<summary>Code</summary>
+</details>
+
+**Recommended Mitigation:**
+1. Use a newer version of solidity `(0.8.18)`.
+2. Use uint256 instead of uint64 for the `totalFees`.
+3. Tou could also use the `safeMath` library of Openzeppelin.
+4. Remove the balance check from `PuppyRaffle::withdrawfees`.
+
+```diff
+-        require(address(this).balance == uint256(totalFees), "PuppyRaffle: There are currently players active!");
+
+// there are more attack vector with that final require, so we recommend removing it.
+```
